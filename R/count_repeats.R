@@ -11,40 +11,48 @@
 #' @return the repeated counts for the given sequence
 #' @export
 count_cag_repeats <- function(i1, min.repeats = 3) {
-  # Function to count CAG repeats in a single sequence
-  count_single_sequence <- function(rowname, i = i1) {
+    stopifnot(is.data.frame(i1))
+    stopifnot(all(c("insert", "strand") %in% colnames(i1)))
     
-    row = i[rownames(i) == rowname,]
+    inserts <- as.character(i1$insert)
+    strands <- as.character(i1$strand)
     
-    # Regex pattern for the longest uninterrupted block of CAG repeats
-    if(row$strand == "fwd"){
-      pattern <- paste0("(CAG)+")
-    }else{
-      pattern <- paste0("(CTG)+")
+    count_one <- function(seq, strand, min.repeats) {
+      if (is.na(seq) || is.na(strand) || !nzchar(seq)) {
+        return(0L)
+      }
+      
+      pattern <- if (strand == "fwd") "(?:CAG)+" else "(?:CTG)+"
+      
+      m <- gregexpr(pattern, seq, perl = TRUE)[[1]]
+      
+      if (length(m) == 1L && m[1] == -1L) {
+        return(0L)
+      }
+      
+      match_lengths <- attr(m, "match.length")
+      repeat_counts <- match_lengths / 3L
+      repeat_counts <- repeat_counts[repeat_counts > min.repeats]
+      
+      if (length(repeat_counts) == 0L) {
+        return(0L)
+      }
+      
+      sum(repeat_counts)
     }
     
-    # Find all matches of the pattern
-    matches <- regmatches(row$insert, gregexpr(pattern, row$insert, perl = TRUE))[[1]]
+    out <- mapply(
+      FUN = count_one,
+      seq = inserts,
+      strand = strands,
+      MoreArgs = list(min.repeats = min.repeats),
+      USE.NAMES = FALSE
+    )
     
-    # Calculate the number of repeats for each match
-    repeat_counts <- BiocGenerics::sapply(matches, function(match) nchar(match) / 3)
-    
-    #assuming that greater 3 is part of the CAG repeat region
-    repeat_counts <- repeat_counts[repeat_counts > min.repeats]
-    
-    # Return the maximum number of repeats
-    return(sum(repeat_counts))
-  }
-  
-  # Apply the function in parallel using parallel::mclapply
-  result <- parallel::mclapply(rownames(i1), count_single_sequence, mc.cores = parallel::detectCores() - 1)
-  
-  # Simplify the result to a vector
-  result <- BiocGenerics::unlist(result)
-  
-  # Return a named vector where names are the sequences and values are repeat counts
-  return(result)
+    names(out) <- rownames(i1)
+    out
 }
+
 
 
 
